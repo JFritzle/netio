@@ -74,11 +74,11 @@
 win32:
 	$(MAKE) all CC="gcc -O -s" O=.o X=.exe \
         CFLAGS="-DWIN32" LFLAGS="" \
-	LIBS="-lwsock32 -lnetapi32" OUT=-o
+	LIBS="-lws2_32 -lnetapi32" OUT=-o
 win32-debug:
 	$(MAKE) all CC="gcc -g" O=.o X=.exe \
         CFLAGS="-DWIN32" LFLAGS="" \
-	LIBS="-lwsock32 -lnetapi32" OUT=-o
+	LIBS="-lws2_32 -lnetapi32" OUT=-o
 os2:
 	$(MAKE) all CC="icc -q -Gm -Gt -O" O=.obj X=.exe \
         CFLAGS="-DOS2 -Ic:/os2tk45/h/stack16" \
