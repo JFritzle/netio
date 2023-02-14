@@ -5,14 +5,11 @@
  */
 
 static char *rcsid =
-"$Id: netio.c,v 1.34 2018/12/16 22:45:24 rommel Exp rommel $";
-static char *rcsrev = "$Revision: 1.34 $";
+"$Id: netio.c,v 1.33 2018/12/16 20:52:52 rommel Exp rommel $";
+static char *rcsrev = "$Revision: 1.33 $";
 
 /*
  * $Log: netio.c,v $
- * Revision 1.34  2018/12/16 22:45:24  rommel
- * fix for OS/2
- *
  * Revision 1.33  2018/12/16 20:52:52  rommel
  * various changes
  * updates for current MinGW32/64
@@ -198,7 +195,7 @@ static char *rcsrev = "$Revision: 1.34 $";
 
 #include <ws2tcpip.h>
 #include <windows.h>
-#include <winsock.h>
+#include <winsock2.h>
 #define soclose closesocket
 #define SOCKLEN_T
 
@@ -579,8 +576,8 @@ int recv_data(int socket, void *buffer, size_t size, int flags)
 const int sobufsize = 131072;
 int nPort = DEFAULTPORT;
 int nAuxPort = DEFAULTPORT + 1;
-struct in_addr addr_server;
-struct in_addr addr_local;
+struct in6_addr addr_server;
+struct in6_addr addr_local;
 
 int udpsocket, udpd;
 unsigned long nUDPCount;
@@ -593,14 +590,16 @@ THREAD TCP_Server(void *arg)
   TIMER nTimer;
   long nTime;
   long long nData;
-  struct sockaddr_in sa_server, sa_client;
+  struct sockaddr_in6 sa_server, sa_client;
   int server, client;
+  char ipv6addr[INET6_ADDRSTRLEN];
+  char *ipaddr;
   socklen_type length;
   struct timeval tv;
   fd_set fds;
   int rc;
   int nByte;
-  int flag = 1;
+  int on = 1, off = 0;
 
   if ((cBuffer = InitBuffer(TMAXSIZE)) == NULL)
   {
@@ -608,7 +607,7 @@ THREAD TCP_Server(void *arg)
     return THREADRESULT;
   }
 
-  if ((server = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+  if ((server = socket(PF_INET6, SOCK_STREAM, 0)) < 0)
   {
     psock_errno("socket()");
     free(cBuffer);
@@ -617,11 +616,14 @@ THREAD TCP_Server(void *arg)
 
   setsockopt(server, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
   setsockopt(server, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
-  setsockopt(server, IPPROTO_TCP, TCP_NODELAY, (char *) &flag, sizeof(int));
+  setsockopt(server, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(int));
+  setsockopt(server, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof(int));
+  setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &off, sizeof(int));
 
-  sa_server.sin_family = AF_INET;
-  sa_server.sin_port = htons(nPort);
-  sa_server.sin_addr = addr_local;
+  memset(&sa_server, 0, sizeof(sa_server));
+  sa_server.sin6_family = AF_INET6;
+  sa_server.sin6_port = htons(nPort);
+  sa_server.sin6_addr = addr_local;
 
   if (bind(server, (struct sockaddr *) &sa_server, sizeof(sa_server)) < 0)
   {
@@ -641,7 +643,7 @@ THREAD TCP_Server(void *arg)
 
   for (;;)
   {
-    printf("TCP server listening.\n");
+    printf("TCP server listening on port %d.\n",nPort);
 
     FD_ZERO(&fds);
     FD_SET(server, &fds);
@@ -664,7 +666,12 @@ THREAD TCP_Server(void *arg)
     setsockopt(client, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
     setsockopt(client, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
 
-    printf("TCP connection established ... ");
+    inet_ntop (sa_client.sin6_family,sa_client.sin6_addr.s6_addr,ipv6addr,INET6_ADDRSTRLEN);
+    if (IN6_IS_ADDR_V4MAPPED(&sa_client.sin6_addr))
+      ipaddr = ipv6addr+7;
+    else 
+      ipaddr = ipv6addr;
+    printf("TCP connection from %s established ... ",ipaddr);
     fflush(stdout);
 
     for (;;)
@@ -771,11 +778,13 @@ void TCP_Bench(void *arg)
   long nTime;
   long long nData;
   int i;
-  struct sockaddr_in sa_server, sa_client;
+  struct sockaddr_in6 sa_server, sa_client;
   int server;
+  char ipv6addr[INET6_ADDRSTRLEN];
+  char *ipaddr;
   int rc;
   int nByte;
-  int flag = 1;
+  int on = 1, off = 0;
 
   if ((cBuffer = InitBuffer(TMAXSIZE)) == NULL)
   {
@@ -783,7 +792,7 @@ void TCP_Bench(void *arg)
     return;
   }
 
-  if ((server = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+  if ((server = socket(PF_INET6, SOCK_STREAM, 0)) < 0)
   {
     psock_errno("socket()");
     free(cBuffer);
@@ -792,11 +801,14 @@ void TCP_Bench(void *arg)
 
   setsockopt(server, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
   setsockopt(server, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
-  setsockopt(server, IPPROTO_TCP, TCP_NODELAY, (char *) &flag, sizeof(int));
+  setsockopt(server, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(int));
+  setsockopt(server, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof(int));
+  setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &off, sizeof(int));
 
-  sa_client.sin_family = AF_INET;
-  sa_client.sin_port = htons(0);
-  sa_client.sin_addr = addr_local;
+  memset(&sa_client, 0, sizeof(sa_client));
+  sa_client.sin6_family = AF_INET6;
+  sa_client.sin6_port = htons(0);
+  sa_client.sin6_addr = addr_local;
 
   if (bind(server, (struct sockaddr *) &sa_client, sizeof(sa_client)) < 0)
   {
@@ -806,9 +818,10 @@ void TCP_Bench(void *arg)
     return;
   }
 
-  sa_server.sin_family = AF_INET;
-  sa_server.sin_port = htons(nPort);
-  sa_server.sin_addr = addr_server;
+  memset(&sa_server, 0, sizeof(sa_server));
+  sa_server.sin6_family = AF_INET6;
+  sa_server.sin6_port = htons(nPort);
+  sa_server.sin6_addr = addr_server;
 
   if (connect(server, (struct sockaddr *) &sa_server, sizeof(sa_server)) < 0)
   {
@@ -818,7 +831,10 @@ void TCP_Bench(void *arg)
     return;
   }
 
-  printf("\nTCP connection established.\n");
+  inet_ntop (sa_server.sin6_family,sa_server.sin6_addr.s6_addr,ipv6addr,INET6_ADDRSTRLEN);
+  ipaddr = ipv6addr;
+  if (IN6_IS_ADDR_V4MAPPED(&sa_server.sin6_addr)) ipaddr += 7;
+  printf("\nTCP connection to %s port %d established.\n",ipaddr,nPort);
 
   for (i = 0; i < ntSizes; i++)
   {
@@ -931,9 +947,10 @@ void TCP_Bench(void *arg)
 THREAD UDP_Receiver(void *arg)
 {
   char *cBuffer;
-  struct sockaddr_in sa_server, sa_client;
+  struct sockaddr_in6 sa_server, sa_client;
   int rc;
   socklen_type nBytes;
+  int on = 1, off = 0;
 
   if ((cBuffer = InitBuffer(TMAXSIZE)) == NULL)
   {
@@ -941,7 +958,7 @@ THREAD UDP_Receiver(void *arg)
     return THREADRESULT;
   }
 
-  if ((udpsocket = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
+  if ((udpsocket = socket(PF_INET6, SOCK_DGRAM, 0)) < 0)
   {
     psock_errno("socket(DGRAM)");
     free(cBuffer);
@@ -950,10 +967,13 @@ THREAD UDP_Receiver(void *arg)
   
   setsockopt(udpsocket, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
   setsockopt(udpsocket, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
+  setsockopt(udpsocket, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(int));
+  setsockopt(udpsocket, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &off, sizeof(int));
 
-  sa_server.sin_family = AF_INET;
-  sa_server.sin_port = htons(nAuxPort);
-  sa_server.sin_addr = addr_local;
+  memset(&sa_server, 0, sizeof(sa_server));
+  sa_server.sin6_family = AF_INET6;
+  sa_server.sin6_port = htons(nAuxPort);
+  sa_server.sin6_addr = addr_local;
 
   if (bind(udpsocket, (struct sockaddr *) &sa_server, sizeof(sa_server)) < 0)
   {
@@ -993,12 +1013,15 @@ THREAD UDP_Server(void *arg)
   TIMER nTimer;
   long nTime;
   long long nData;
-  struct sockaddr_in sa_server, sa_client;
+  struct sockaddr_in6 sa_server, sa_client;
   int server, client;
+  char ipv6addr[INET6_ADDRSTRLEN];
+  char *ipaddr;
   struct timeval tv;
   fd_set fds;
   int rc, nByte;
   socklen_type nLength;
+  int on = 1, off = 0;
 
   if ((cBuffer = InitBuffer(TMAXSIZE)) == NULL)
   {
@@ -1006,7 +1029,7 @@ THREAD UDP_Server(void *arg)
     return THREADRESULT;
   }
 
-  if ((server = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+  if ((server = socket(PF_INET6, SOCK_STREAM, 0)) < 0)
   {
     psock_errno("socket(STREAM)");
     free(cBuffer);
@@ -1015,10 +1038,13 @@ THREAD UDP_Server(void *arg)
 
   setsockopt(server, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
   setsockopt(server, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
+  setsockopt(server, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(int));
+  setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &off, sizeof(int));
 
-  sa_server.sin_family = AF_INET;
-  sa_server.sin_port = htons(nAuxPort);
-  sa_server.sin_addr = addr_local;
+  memset(&sa_server, 0, sizeof(sa_server));
+  sa_server.sin6_family = AF_INET6;
+  sa_server.sin6_port = htons(nAuxPort);
+  sa_server.sin6_addr = addr_local;
 
   if (bind(server, (struct sockaddr *) &sa_server, sizeof(sa_server)) < 0)
   {
@@ -1038,7 +1064,7 @@ THREAD UDP_Server(void *arg)
 
   for (;;)
   {
-    printf("UDP server listening.\n");
+    printf("UDP server listening on port %d.\n",nAuxPort);
 
     FD_ZERO(&fds);
     FD_SET(server, &fds);
@@ -1061,10 +1087,13 @@ THREAD UDP_Server(void *arg)
     setsockopt(client, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
     setsockopt(client, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
 
-    printf("UDP connection established ... ");
+    inet_ntop (sa_client.sin6_family,sa_client.sin6_addr.s6_addr,ipv6addr,INET6_ADDRSTRLEN);
+    ipaddr = ipv6addr;
+    if (IN6_IS_ADDR_V4MAPPED(&sa_server.sin6_addr)) ipaddr += 7;
+    printf("UDP connection from %s established ... ",ipaddr);
     fflush(stdout);
 
-    sa_client.sin_port = htons(nAuxPort);
+    sa_client.sin6_port = htons(nAuxPort);
 
     for (;;)
     {
@@ -1180,9 +1209,12 @@ void UDP_Bench(void *arg)
   long nResult;
   long long nData;
   int i;
-  struct sockaddr_in sa_server, sa_client;
+  struct sockaddr_in6 sa_server, sa_client;
   int server;
+  char ipv6addr[INET6_ADDRSTRLEN];
+  char *ipaddr;
   int rc, nByte;
+  int on = 1, off = 0;
 
   if ((cBuffer = InitBuffer(TMAXSIZE)) == NULL)
   {
@@ -1190,7 +1222,7 @@ void UDP_Bench(void *arg)
     return;
   }
 
-  if ((server = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+  if ((server = socket(PF_INET6, SOCK_STREAM, 0)) < 0)
   {
     psock_errno("socket()");
     free(cBuffer);
@@ -1199,10 +1231,13 @@ void UDP_Bench(void *arg)
 
   setsockopt(server, SOL_SOCKET, SO_RCVBUF, (char *) &sobufsize, sizeof(sobufsize));
   setsockopt(server, SOL_SOCKET, SO_SNDBUF, (char *) &sobufsize, sizeof(sobufsize));
+  setsockopt(server, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(int));
+  setsockopt(server, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &off, sizeof(int));
 
-  sa_client.sin_family = AF_INET;
-  sa_client.sin_port = htons(0);
-  sa_client.sin_addr = addr_local;
+  memset(&sa_client, 0, sizeof(sa_client));
+  sa_client.sin6_family = AF_INET6;
+  sa_client.sin6_port = htons(0);
+  sa_client.sin6_addr = addr_local;
 
   if (bind(server, (struct sockaddr *) &sa_client, sizeof(sa_client)) < 0)
   {
@@ -1212,9 +1247,10 @@ void UDP_Bench(void *arg)
     return;
   }
 
-  sa_server.sin_family = AF_INET;
-  sa_server.sin_port = htons(nAuxPort);
-  sa_server.sin_addr = addr_server;
+  memset(&sa_server, 0, sizeof(sa_server));
+  sa_server.sin6_family = AF_INET6;
+  sa_server.sin6_port = htons(nAuxPort);
+  sa_server.sin6_addr = addr_server;
 
   if (connect(server, (struct sockaddr *) &sa_server, sizeof(sa_server)) < 0)
   {
@@ -1224,7 +1260,12 @@ void UDP_Bench(void *arg)
     return;
   }
 
-  printf("\nUDP connection established.\n");
+  inet_ntop (sa_server.sin6_family,sa_server.sin6_addr.s6_addr,ipv6addr,INET6_ADDRSTRLEN);
+  if (IN6_IS_ADDR_V4MAPPED(&sa_server.sin6_addr))
+    ipaddr = ipv6addr+7;
+  else 
+    ipaddr = ipv6addr;
+  printf("\nUDP connection to %s port %d established.\n",ipaddr,nAuxPort);
 
   for (i = 0; i < ntSizes; i++)
   {
@@ -1371,14 +1412,17 @@ int main(int argc, char **argv)
 {
   char szVersion[32], *szName = 0, *szLocal = 0, *szEnd;
   int option;
-  struct hostent *host;
+  struct addrinfo hints;
+  struct addrinfo *result;
+  struct sockaddr_in6 *addr;
+  int rc;
   long nSize;
 
   strcpy(szVersion, rcsrev + sizeof("$Revision: ") - 1);
   *strchr(szVersion, ' ') = 0;
 
   printf("\nNETIO - Network Throughput Benchmark, Version %s"
-	 "\n(C) 1997-2018 Kai Uwe Rommel\n", szVersion);
+	 "\n(C) 1997-2012 Kai Uwe Rommel\n", szVersion);
 
   if (argc == 1)
     usage();
@@ -1439,24 +1483,32 @@ int main(int argc, char **argv)
 
   /* initialize TCP/IP */
 
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET6;
+  hints.ai_socktype = 0;
+  hints.ai_flags = (AI_ALL | AI_V4MAPPED);
+  hints.ai_protocol = 0;
+  hints.ai_canonname = NULL;
+  hints.ai_addr = NULL;
+  hints.ai_next = NULL;
+
   if (bTCP || bUDP)
   {
     if (sock_init())
       return psock_errno("sock_init()"), 1;
 
     if (szLocal == 0)
-      addr_local.s_addr = INADDR_ANY;
+      addr_local = in6addr_any;
     else
     {
-      if (isdigit(*szLocal))
-	addr_local.s_addr = inet_addr(szLocal);
-      else
+      if (rc = getaddrinfo(szLocal, NULL, &hints, &result) != 0)
       {
-	if ((host = gethostbyname(szLocal)) == NULL)
-	  return psock_errno("gethostbyname()"), 1;
-
-	addr_local = * (struct in_addr *) (host->h_addr);
+        fprintf(stderr, "getaddrinfo() %s\n", gai_strerror(rc));
+        return 1;
       }
+      addr = (struct sockaddr_in6*) result->ai_addr;
+      memcpy(addr_local.s6_addr, addr->sin6_addr.s6_addr, sizeof(struct in6_addr));
+      freeaddrinfo(result);
     }
 
     if (!bSRV)
@@ -1464,15 +1516,14 @@ int main(int argc, char **argv)
       if (optind == argc)
 	usage();
 
-      if (isdigit(*argv[optind]))
-	addr_server.s_addr = inet_addr(argv[optind]);
-      else
+      if (rc = getaddrinfo(argv[optind], NULL, &hints, &result) != 0)
       {
-	if ((host = gethostbyname(argv[optind])) == NULL)
-	  return psock_errno("gethostbyname()"), 1;
-
-	addr_server = * (struct in_addr *) (host->h_addr);
+        fprintf(stderr, "getaddrinfo() %s\n", gai_strerror(rc));
+        return 1;
       }
+      addr = (struct sockaddr_in6*) result->ai_addr;
+      memcpy(addr_server.s6_addr, addr->sin6_addr.s6_addr, sizeof(struct in6_addr));
+      freeaddrinfo(result);
     }
   }
 
